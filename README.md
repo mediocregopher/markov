@@ -27,11 +27,12 @@ following endpoints will be exposed:
 __/build__
 
 POST'd to in order to add seed data to the chain. This can be called at any
-time.
+time. It takes in an optional `chainName` argument which can be used to build
+independant chains
 
 Example:
 
-    cat some-large-text.txt | curl -XPOST -d@- localhost:8080/build
+    cat some-large-text.txt | curl -XPOST -d@- localhost:8080/build?chainName=twochainz
 
 -----
 
@@ -39,11 +40,12 @@ __/generate__
 
 Get'd in order to retrieve randomly generated text from the markov chain. Takes
 a mandatory `numParts` GET argument. Parts are sections of text separated by
-some punctation (e.g. `.`, `,`, `!`, `?`, `:`, `;`).
+some punctation (e.g. `.`, `,`, `!`, `?`, `:`, `;`). Also takes an optional
+`chainName` argument to specify which chain to generate off from.
 
 Example:
 
-    curl localhost:8080/generate?numParts=2
+    curl localhost:8080/generate?numParts=2&chainName=twochainz
 
 Which might give:
 > Fraud, wherewithal is every conscience stung,

@@ -30,6 +30,10 @@ func (p Prefix) Shift(word string) {
 
 var p *pool.Pool
 
+func prefixKey(chain string, prefix Prefix) string {
+	return fmt.Sprintf("markov:%s:%s", chain, prefix.String())
+}
+
 func main() {
 	rand.Seed(time.Now().UTC().UnixNano())
 	log.SetFlags(log.Llongfile)
@@ -78,7 +82,7 @@ func main() {
 			}
 			suffixes = append(suffixes, strings.TrimSpace(s))
 		}
-		buildCh <- suffixes
+		buildCh <- toBuild{suffixes, r.FormValue("chainName")}
 	})
 
 	http.HandleFunc("/generate", func(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +101,7 @@ func main() {
 		prefix := make(Prefix, prefixLen)
 		var words []string
 		for {
-			key := fmt.Sprintf("markov:%s", prefix.String())
+			key := prefixKey(r.FormValue("chainName"), prefix)
 			suffixes, err := p.Cmd("ZRANGE", key, 0, -1).List()
 			if err != nil {
 				log.Fatal(err)
@@ -143,14 +147,20 @@ func main() {
 	log.Fatal(http.ListenAndServe(listenAddr, nil))
 }
 
-var buildCh = make(chan []string)
+type toBuild struct {
+	suffixes  []string
+	chainName string
+}
+
+var buildCh = make(chan toBuild)
 
 func bobTheBuilder(prefixLen int) {
-	for suffixes := range buildCh {
+	for toB := range buildCh {
+		suffixes := toB.suffixes
 		prefix := make(Prefix, prefixLen)
 		ts := time.Now().UTC().Unix()
 		for _, suffix := range suffixes {
-			key := fmt.Sprintf("markov:%s", prefix.String())
+			key := prefixKey(toB.chainName, prefix)
 			if err := p.Cmd("ZADD", key, ts, suffix).Err; err != nil {
 				log.Fatal(err)
 			}
