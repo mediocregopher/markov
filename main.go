@@ -115,6 +115,17 @@ func main() {
 			}
 
 			lastChar := next[len(next)-1]
+
+			if lastChar == '!' ||
+				lastChar == '?' ||
+				lastChar == '.' ||
+				(numParts == 1 &&
+					(lastChar == ',' ||
+						lastChar == ':' ||
+						lastChar == ';')) {
+				numParts--
+			}
+
 			switch lastChar {
 			case '!', '?', '.', ',', ':', ';':
 				numParts--
