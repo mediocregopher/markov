@@ -75,9 +75,7 @@ func main() {
 				log.Fatal(err)
 			}
 
-			log.Printf("quiet count is %d/%d", quietCount[e.ChannelId], interjectWait)
 			randN := rand.Intn(interjectWait)
-			log.Printf("randN is %d", randN)
 			if (quietCount[e.ChannelId] >= interjectWait && randN == 0) ||
 				strings.HasPrefix(strings.ToLower(e.Text), "markov") {
 				responseText, err := generate(e.ChannelId)
