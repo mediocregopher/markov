@@ -6,18 +6,19 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/mediocregopher/lever"
-	"github.com/nlopes/slack"
+	"github.com/mediocregopher/markov/markovbot/slack"
 )
 
 var addr string
 
 func main() {
-
+	log.SetFlags(log.Lshortfile)
 	rand.Seed(time.Now().UTC().UnixNano())
 
 	l := lever.New("markovbot", nil)
@@ -50,46 +51,58 @@ func main() {
 	}
 
 	log.Printf("connecting with %s", apiToken)
-	api := slack.New(apiToken)
-
-	log.Print("connecting to RTM")
-	apiWS, err := api.StartRTM("", "http://localhost/")
+	ws, err := slack.NewWS(apiToken)
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	ch := make(chan slack.SlackEvent)
-	go func() {
-		apiWS.HandleIncomingEvents(ch)
-	}()
+	log.Print("connected")
 
 	quietCount := map[string]int{}
+	pingTick := time.Tick(5 * time.Second)
 
-	for event := range ch {
-		switch e := event.Data.(type) {
-		case *slack.MessageEvent:
-			log.Printf("%s [@%s] %q", e.ChannelId, e.UserId, e.Text)
-			url := fmt.Sprintf("%s/build?chainName=%s", addr, e.ChannelId)
-			_, err := http.Post(url, "", bytes.NewBufferString(e.Text))
+	for {
+		ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+
+		select {
+		case <-pingTick:
+			if err := ws.Ping(); err != nil {
+				log.Fatal(err)
+			}
+		default:
+		}
+
+		m, err := ws.Read()
+		if nerr, ok := err.(*net.OpError); ok && nerr.Timeout() {
+			continue
+		} else if err != nil {
+			log.Fatal(err)
+		}
+
+		if m.Type != "message" {
+			continue
+		}
+
+		log.Printf("%s [@%s] %q", m.ChannelID, m.UserId, m.Text)
+		url := fmt.Sprintf("%s/build?chainName=%s", addr, m.ChannelID)
+		_, err = http.Post(url, "", bytes.NewBufferString(m.Text))
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		randN := rand.Intn(interjectWait)
+		if (quietCount[m.ChannelID] >= interjectWait && randN == 0) ||
+			strings.HasPrefix(strings.ToLower(m.Text), "markov") {
+			response, err := generate(m.ChannelID)
 			if err != nil {
 				log.Fatal(err)
 			}
-
-			randN := rand.Intn(interjectWait)
-			if (quietCount[e.ChannelId] >= interjectWait && randN == 0) ||
-				strings.HasPrefix(strings.ToLower(e.Text), "markov") {
-				responseText, err := generate(e.ChannelId)
-				if err != nil {
-					log.Fatal(err)
-				}
-				response := apiWS.NewOutgoingMessage(responseText, e.ChannelId)
-				if err := apiWS.SendMessage(response); err != nil {
-					log.Fatal(err)
-				}
-				quietCount[e.ChannelId] = 0
-			} else {
-				quietCount[e.ChannelId]++
+			log.Printf("sendng %q", response)
+			if err = ws.Send(m.ChannelID, response); err != nil {
+				log.Fatal(err)
 			}
+			quietCount[m.ChannelID] = 0
+		} else {
+			quietCount[m.ChannelID]++
 		}
 	}
 }
