@@ -19,6 +19,17 @@ this:
     go get -u .
     go build
 
+## Setup
+
+markov requires a running instance of redis in order to work.
+
+    # Describes options which can be passed in, defaults for most are fine
+    ./markov -h
+
+    # To actually run it
+    ./markov
+
+
 ## Usage
 
 Simply execute the binary, pointing it at a valid redis instance. Once done, the
@@ -28,7 +39,7 @@ __/build__
 
 POST'd to in order to add seed data to the chain. This can be called at any
 time. It takes in an optional `chainName` argument which can be used to build
-independant chains
+independent chains
 
 Example:
 
@@ -38,7 +49,7 @@ Example:
 
 __/generate__
 
-Get'd in order to retrieve randomly generated text from the markov chain. Takes
+GET'd in order to retrieve randomly generated text from the markov chain. Takes
 a mandatory `numParts` GET argument. Parts are sections of text separated by
 some punctation (e.g. `.`, `,`, `!`, `?`, `:`, `;`). Also takes an optional
 `chainName` argument to specify which chain to generate off from.
@@ -49,3 +60,8 @@ Example:
 
 Which might give:
 > Fraud, wherewithal is every conscience stung,
+
+## Slack bot
+
+There is a bot for slack which I've written which makes use of markov as a
+backend. You can find it [here](/markovbot)
