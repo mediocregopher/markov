@@ -13,9 +13,14 @@ import (
 
 	"github.com/mediocregopher/lever"
 	"github.com/mediocregopher/markov/markovbot/slack"
+	"github.com/mediocregopher/radix.v2/redis"
 )
 
 var addr string
+
+func quietCountKey(channelID string) string {
+	return fmt.Sprintf("markovbot:quietCount:%s", channelID)
+}
 
 func main() {
 	log.SetFlags(log.Lshortfile)
@@ -36,6 +41,11 @@ func main() {
 		Description: "Minimum number of messages to wait before randomly interjecting in a channel",
 		Default:     "100",
 	})
+	l.Add(lever.Param{
+		Name:        "-redis-addr",
+		Description: "Address of redis instance to store some minor data in",
+		Default:     "127.0.0.1:6379",
+	})
 	l.Parse()
 
 	apiToken, ok := l.ParamStr("-token")
@@ -50,6 +60,13 @@ func main() {
 		log.Fatal("-interject-wait must be a number greater than 0")
 	}
 
+	redisAddr, _ := l.ParamStr("-redis-addr")
+	log.Printf("connecting to redis at %s", redisAddr)
+	rconn, err := redis.Dial("tcp", redisAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	log.Printf("connecting with %s", apiToken)
 	ws, err := slack.NewWS(apiToken)
 	if err != nil {
@@ -57,7 +74,6 @@ func main() {
 	}
 	log.Print("connected")
 
-	quietCount := map[string]int{}
 	pingTick := time.Tick(5 * time.Second)
 
 	for {
@@ -66,7 +82,10 @@ func main() {
 		select {
 		case <-pingTick:
 			if err := ws.Ping(); err != nil {
-				log.Fatal(err)
+				log.Fatalf("error pinging slack websocket: %s", err)
+			}
+			if err := rconn.Cmd("PING").Err; err != nil {
+				log.Fatalf("error pinging redis connection: %s", err)
 			}
 		default:
 		}
@@ -89,9 +108,13 @@ func main() {
 			log.Fatal(err)
 		}
 
+		quietCount, err := rconn.Cmd("INCR", quietCountKey(m.ChannelID)).Int()
+		if err != nil {
+			log.Fatal(err)
+		}
+
 		randN := rand.Intn(interjectWait)
-		if (quietCount[m.ChannelID] >= interjectWait && randN == 0) ||
-			strings.HasPrefix(strings.ToLower(m.Text), "markov") {
+		if (quietCount > interjectWait && randN == 0) || strings.HasPrefix(strings.ToLower(m.Text), "markov") {
 			response, err := generate(m.ChannelID)
 			if err != nil {
 				log.Fatal(err)
@@ -100,9 +123,9 @@ func main() {
 			if err = ws.Send(m.ChannelID, response); err != nil {
 				log.Fatal(err)
 			}
-			quietCount[m.ChannelID] = 0
-		} else {
-			quietCount[m.ChannelID]++
+			if err := rconn.Cmd("DEL", quietCountKey(m.ChannelID)).Err; err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 }
