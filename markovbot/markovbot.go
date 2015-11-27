@@ -8,6 +8,8 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,6 +19,8 @@ import (
 )
 
 var addr string
+var rconn *redis.Client
+var interjectWait int
 
 func quietCountKey(channelID string) string {
 	return fmt.Sprintf("markovbot:quietCount:%s", channelID)
@@ -55,15 +59,16 @@ func main() {
 
 	addr, _ = l.ParamStr("-addr")
 
-	interjectWait, _ := l.ParamInt("-interject-wait")
+	interjectWait, _ = l.ParamInt("-interject-wait")
 	if interjectWait <= 0 {
 		log.Fatal("-interject-wait must be a number greater than 0")
 	}
 
 	redisAddr, _ := l.ParamStr("-redis-addr")
 	log.Printf("connecting to redis at %s", redisAddr)
-	rconn, err := redis.Dial("tcp", redisAddr)
-	if err != nil {
+
+	var err error
+	if rconn, err = redis.Dial("tcp", redisAddr); err != nil {
 		log.Fatal(err)
 	}
 
@@ -101,6 +106,13 @@ func main() {
 			continue
 		}
 
+		m.Text = cleanText(m.Text)
+
+		// If the message is just a link, don't even bother
+		if _, err := url.Parse(m.Text); err == nil {
+			continue
+		}
+
 		log.Printf("%s [@%s] %q", m.ChannelID, m.UserId, m.Text)
 		url := fmt.Sprintf("%s/build?chainName=%s", addr, m.ChannelID)
 		_, err = http.Post(url, "", bytes.NewBufferString(m.Text))
@@ -108,26 +120,59 @@ func main() {
 			log.Fatal(err)
 		}
 
-		quietCount, err := rconn.Cmd("INCR", quietCountKey(m.ChannelID)).Int()
+		ok, err := shouldInterject(m)
+		if err != nil {
+			log.Fatal(err)
+		} else if !ok {
+			continue
+		}
+
+		response, err := generate(m.ChannelID)
 		if err != nil {
 			log.Fatal(err)
 		}
+		log.Printf("sending %q", response)
+		if err = ws.Send(m.ChannelID, response); err != nil {
+			log.Fatal(err)
+		}
 
-		randN := rand.Intn(interjectWait)
-		if (quietCount > interjectWait && randN == 0) || strings.HasPrefix(strings.ToLower(m.Text), "markov") {
-			response, err := generate(m.ChannelID)
-			if err != nil {
-				log.Fatal(err)
-			}
-			log.Printf("sendng %q", response)
-			if err = ws.Send(m.ChannelID, response); err != nil {
-				log.Fatal(err)
-			}
-			if err := rconn.Cmd("DEL", quietCountKey(m.ChannelID)).Err; err != nil {
-				log.Fatal(err)
-			}
+		if err := rconn.Cmd("DEL", quietCountKey(m.ChannelID)).Err; err != nil {
+			log.Fatal(err)
 		}
 	}
+}
+
+var linkRegex = regexp.MustCompile("<(https?://.+?)>")
+
+func cleanText(text string) string {
+	matches := linkRegex.FindAllStringSubmatch(text, -1)
+	for _, match := range matches {
+		text = strings.Replace(text, match[0], match[1], -1)
+	}
+	return text
+}
+
+func shouldInterject(m *slack.Message) (bool, error) {
+	quietCount, err := rconn.Cmd("INCR", quietCountKey(m.ChannelID)).Int()
+	if err != nil {
+		return false, err
+	}
+
+	randN := rand.Intn(interjectWait)
+	if quietCount > interjectWait && randN == 0 {
+		return true, nil
+	}
+
+	text := strings.ToLower(m.Text)
+	if strings.HasPrefix(text, "markov") {
+		return true, nil
+	}
+
+	if strings.HasPrefix(text, "@markov") {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func generate(channelID string) (string, error) {
