@@ -127,10 +127,30 @@ func main() {
 			continue
 		}
 
-		response, err := generate(m.ChannelID)
-		if err != nil {
-			log.Fatal(err)
+		var response string
+		for {
+			innerRes, err := generate(m.ChannelID)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			response += innerRes
+			if len(response) >= 20 {
+				break
+			}
+
+			switch response[len(response)-1] {
+			case '.', '!', '?':
+				response += " "
+			default:
+				response += ". "
+			}
 		}
+
+		// Clean outgoing text too, in case there's any chain data left that has
+		// the old, unclean links in it
+		response = cleanText(response)
+
 		log.Printf("sending %q", response)
 		if err = ws.Send(m.ChannelID, response); err != nil {
 			log.Fatal(err)
