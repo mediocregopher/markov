@@ -125,3 +125,25 @@ func (w *WS) Ping() error {
 	}
 	return websocket.JSON.Send(w.Conn, &m)
 }
+
+// GetUserID returns the userID of the bot with the given token
+func GetUserID(token string) (string, error) {
+	u := SlackAPI + "auth.test"
+	values := url.Values{"token": {token}}
+	resp, err := http.PostForm(u, values)
+	if err != nil {
+		return "", err
+	}
+
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	m := map[string]interface{}{}
+	if err = json.Unmarshal(body, &m); err != nil {
+		return "", err
+	}
+
+	return m["user_id"].(string), nil
+}

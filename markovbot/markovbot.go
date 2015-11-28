@@ -21,6 +21,7 @@ import (
 var addr string
 var rconn *redis.Client
 var interjectWait int
+var thisUserID string
 
 func quietCountKey(channelID string) string {
 	return fmt.Sprintf("markovbot:quietCount:%s", channelID)
@@ -72,7 +73,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Printf("connecting with %s", apiToken)
+	log.Printf("apiToken is %q", apiToken)
+
+	log.Printf("getting markovbot's userID")
+	if thisUserID, err = slack.GetUserID(apiToken); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("userID is %q", thisUserID)
+
+	log.Printf("connecting to rtm api")
 	ws, err := slack.NewWS(apiToken)
 	if err != nil {
 		log.Fatal(err)
@@ -102,7 +111,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		if m.Type != "message" {
+		if m.Type != "message" || m.UserId == thisUserID {
 			continue
 		}
 
@@ -114,52 +123,52 @@ func main() {
 		}
 
 		log.Printf("%s [@%s] %q", m.ChannelID, m.UserId, m.Text)
+
+		ok, err := shouldInterject(m)
+		if err != nil {
+			log.Fatal(err)
+		} else if ok {
+			if err := sendResponse(m, ws); err != nil {
+				log.Fatal(err)
+			}
+			continue
+		}
+
 		url := fmt.Sprintf("%s/build?chainName=%s", addr, m.ChannelID)
 		_, err = http.Post(url, "", bytes.NewBufferString(m.Text))
 		if err != nil {
 			log.Fatal(err)
 		}
+	}
+}
 
-		ok, err := shouldInterject(m)
+func sendResponse(m *slack.Message, ws *slack.WS) error {
+	var response string
+	for {
+		innerRes, err := generate(m.ChannelID)
 		if err != nil {
-			log.Fatal(err)
-		} else if !ok {
-			continue
+			return err
 		}
 
-		var response string
-		for {
-			innerRes, err := generate(m.ChannelID)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			response += innerRes
-			if len(response) >= 20 {
-				break
-			}
-
-			switch response[len(response)-1] {
-			case '.', '!', '?':
-				response += " "
-			default:
-				response += ". "
-			}
-		}
-
-		// Clean outgoing text too, in case there's any chain data left that has
-		// the old, unclean links in it
-		response = cleanText(response)
-
-		log.Printf("sending %q", response)
-		if err = ws.Send(m.ChannelID, response); err != nil {
-			log.Fatal(err)
-		}
-
-		if err := rconn.Cmd("DEL", quietCountKey(m.ChannelID)).Err; err != nil {
-			log.Fatal(err)
+		response += innerRes
+		if len(response) >= 20 {
+			break
 		}
 	}
+
+	// Clean outgoing text too, in case there's any chain data left that has
+	// the old, unclean links in it
+	response = cleanText(response)
+
+	log.Printf("sending %q", response)
+	if err := ws.Send(m.ChannelID, response); err != nil {
+		return err
+	}
+
+	if err := rconn.Cmd("DEL", quietCountKey(m.ChannelID)).Err; err != nil {
+		return err
+	}
+	return nil
 }
 
 var linkRegex = regexp.MustCompile("<(https?://.+?)>")
@@ -183,12 +192,11 @@ func shouldInterject(m *slack.Message) (bool, error) {
 		return true, nil
 	}
 
-	text := strings.ToLower(m.Text)
-	if strings.HasPrefix(text, "markov") {
+	if strings.HasPrefix(strings.ToLower(m.Text), "markov") {
 		return true, nil
 	}
 
-	if strings.HasPrefix(text, "@markov") {
+	if strings.Contains(m.Text, "<@"+thisUserID+">") {
 		return true, nil
 	}
 
