@@ -109,7 +109,7 @@ func main() {
 		m.Text = cleanText(m.Text)
 
 		// If the message is just a link, don't even bother
-		if _, err := url.Parse(m.Text); err == nil {
+		if _, err := url.ParseRequestURI(m.Text); err == nil {
 			continue
 		}
 
