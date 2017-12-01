@@ -5,6 +5,7 @@ package slack
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -96,9 +97,14 @@ func NewWS(token string) (*WS, error) {
 
 // Read reads a single message off the api and returns it
 func (w *WS) Read() (*Message, error) {
-	var m Message
-	if err := websocket.JSON.Receive(w.Conn, &m); err != nil {
+	var j json.RawMessage
+	if err := websocket.JSON.Receive(w.Conn, &j); err != nil {
 		return nil, err
+	}
+
+	var m Message
+	if err := json.Unmarshal(j, &m); err != nil {
+		return nil, fmt.Errorf("error %q unmarshaling %s", err, j)
 	}
 	return &m, nil
 }
