@@ -135,7 +135,7 @@ func main() {
 				numParts--
 			}
 
-			if numParts == 0 {
+			if numParts <= 0 {
 				break
 			}
 		}
