@@ -70,7 +70,6 @@ func main() {
 
 	prefixLen, _ := l.ParamInt("-prefixLen")
 	timeout, _ := l.ParamInt("-timeout")
-	go bobTheBuilder(prefixLen)
 	go clydeTheCleaner(int64(timeout))
 
 	http.HandleFunc("/build", func(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +81,16 @@ func main() {
 			}
 			suffixes = append(suffixes, strings.TrimSpace(s))
 		}
-		buildCh <- toBuild{suffixes, r.FormValue("chainName")}
+
+		prefix := make(Prefix, prefixLen)
+		ts := time.Now().Unix()
+		for _, suffix := range suffixes {
+			key := prefixKey(r.FormValue("chainName"), prefix)
+			if err := p.Do(radix.FlatCmd(nil, "ZADD", key, ts, suffix)); err != nil {
+				log.Fatal(err)
+			}
+			prefix.Shift(suffix)
+		}
 	})
 
 	http.HandleFunc("/generate", func(w http.ResponseWriter, r *http.Request) {
@@ -145,28 +153,6 @@ func main() {
 
 	listenAddr, _ := l.ParamStr("-listenAddr")
 	log.Fatal(http.ListenAndServe(listenAddr, nil))
-}
-
-type toBuild struct {
-	suffixes  []string
-	chainName string
-}
-
-var buildCh = make(chan toBuild)
-
-func bobTheBuilder(prefixLen int) {
-	for toB := range buildCh {
-		suffixes := toB.suffixes
-		prefix := make(Prefix, prefixLen)
-		ts := time.Now().Unix()
-		for _, suffix := range suffixes {
-			key := prefixKey(toB.chainName, prefix)
-			if err := p.Do(radix.FlatCmd(nil, "ZADD", key, ts, suffix)); err != nil {
-				log.Fatal(err)
-			}
-			prefix.Shift(suffix)
-		}
-	}
 }
 
 func clydeTheCleaner(timeout int64) {
