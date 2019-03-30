@@ -15,11 +15,11 @@ import (
 
 	"github.com/mediocregopher/lever"
 	"github.com/mediocregopher/markov/markovbot/slack"
-	"github.com/mediocregopher/radix.v2/redis"
+	"github.com/mediocregopher/radix/v3"
 )
 
 var addr string
-var rconn *redis.Client
+var rconn radix.Client
 var interjectWait int
 var thisUserID string
 
@@ -69,7 +69,7 @@ func main() {
 	log.Printf("connecting to redis at %s", redisAddr)
 
 	var err error
-	if rconn, err = redis.Dial("tcp", redisAddr); err != nil {
+	if rconn, err = radix.Dial("tcp", redisAddr); err != nil {
 		log.Fatal(err)
 	}
 
@@ -98,7 +98,7 @@ func main() {
 			if err := ws.Ping(); err != nil {
 				log.Fatalf("error pinging slack websocket: %s", err)
 			}
-			if err := rconn.Cmd("PING").Err; err != nil {
+			if err := rconn.Do(radix.Cmd(nil, "PING")); err != nil {
 				log.Fatalf("error pinging redis connection: %s", err)
 			}
 		default:
@@ -165,7 +165,7 @@ func sendResponse(m *slack.Message, ws *slack.WS) error {
 		return err
 	}
 
-	if err := rconn.Cmd("DEL", quietCountKey(m.ChannelID)).Err; err != nil {
+	if err := rconn.Do(radix.Cmd(nil, "DEL", quietCountKey(m.ChannelID))); err != nil {
 		return err
 	}
 	return nil
@@ -182,8 +182,8 @@ func cleanText(text string) string {
 }
 
 func shouldInterject(m *slack.Message) (bool, error) {
-	quietCount, err := rconn.Cmd("INCR", quietCountKey(m.ChannelID)).Int()
-	if err != nil {
+	var quietCount int
+	if err := rconn.Do(radix.Cmd(&quietCount, "INCR", quietCountKey(m.ChannelID))); err != nil {
 		return false, err
 	}
 

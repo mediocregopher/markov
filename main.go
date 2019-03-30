@@ -10,8 +10,7 @@ import (
 	"time"
 
 	"github.com/mediocregopher/lever"
-	"github.com/mediocregopher/radix.v2/pool"
-	"github.com/mediocregopher/radix.v2/util"
+	"github.com/mediocregopher/radix/v3"
 )
 
 // Prefix is a Markov chain prefix of one or more words.
@@ -28,7 +27,7 @@ func (p Prefix) Shift(word string) {
 	p[len(p)-1] = word
 }
 
-var p *pool.Pool
+var p *radix.Pool
 
 func prefixKey(chain string, prefix Prefix) string {
 	return fmt.Sprintf("markov:%s:%s", chain, prefix.String())
@@ -63,7 +62,8 @@ func main() {
 
 	redisAddr, _ := l.ParamStr("-redisAddr")
 	var err error
-	p, err = pool.New("tcp", redisAddr, 10)
+
+	p, err = radix.NewPool("tcp", redisAddr, 10)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -102,13 +102,13 @@ func main() {
 		var words []string
 		for {
 			key := prefixKey(r.FormValue("chainName"), prefix)
-			suffixes, err := p.Cmd("ZRANGE", key, 0, -1).List()
-			if err != nil {
+			var suffixes []string
+			if err := p.Do(radix.Cmd(&suffixes, "ZRANGE", key, "0", "-1")); err != nil {
 				log.Fatal(err)
-			}
-			if len(suffixes) == 0 {
+			} else if len(suffixes) == 0 {
 				break
 			}
+
 			i := rand.Intn(len(suffixes))
 			next := suffixes[i]
 			words = append(words, next)
@@ -158,10 +158,10 @@ func bobTheBuilder(prefixLen int) {
 	for toB := range buildCh {
 		suffixes := toB.suffixes
 		prefix := make(Prefix, prefixLen)
-		ts := time.Now().UTC().Unix()
+		ts := time.Now().Unix()
 		for _, suffix := range suffixes {
 			key := prefixKey(toB.chainName, prefix)
-			if err := p.Cmd("ZADD", key, ts, suffix).Err; err != nil {
+			if err := p.Do(radix.FlatCmd(nil, "ZADD", key, ts, suffix)); err != nil {
 				log.Fatal(err)
 			}
 			prefix.Shift(suffix)
@@ -172,18 +172,19 @@ func bobTheBuilder(prefixLen int) {
 func clydeTheCleaner(timeout int64) {
 	tick := time.Tick(30 * time.Second)
 	for {
-		ch := make(chan string)
-		go func() {
-			err := util.Scan(p, ch, "SCAN", "", "markov:*")
-			if err != nil {
+		expire := time.Now().Unix() - (timeout * 3600)
+		scanner := radix.NewScanner(p, radix.ScanOpts{
+			Command: "SCAN",
+			Pattern: "markov:*",
+		})
+		var key string
+		for scanner.Next(&key) {
+			if err := p.Do(radix.FlatCmd(nil, "ZREMRANGEBYSCORE", key, "0", expire)); err != nil {
 				log.Fatal(err)
 			}
-		}()
-		expire := time.Now().UTC().Unix() - (timeout * 3600)
-		for key := range ch {
-			if err2 := p.Cmd("ZREMRANGEBYSCORE", key, 0, expire).Err; err2 != nil {
-				log.Fatal(err2)
-			}
+		}
+		if err := scanner.Close(); err != nil {
+			log.Fatal(err)
 		}
 
 		<-tick
