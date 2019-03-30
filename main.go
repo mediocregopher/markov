@@ -11,6 +11,8 @@ import (
 
 	"github.com/mediocregopher/lever"
 	"github.com/mediocregopher/radix/v3"
+
+	_ "net/http/pprof"
 )
 
 // Prefix is a Markov chain prefix of one or more words.
