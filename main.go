@@ -23,10 +23,13 @@ func (p Prefix) String() string {
 	return strings.Join(p, " ")
 }
 
-// Shift removes the first word from the Prefix and appends the given word.
-func (p Prefix) Shift(word string) {
-	copy(p, p[1:])
-	p[len(p)-1] = word
+// Shift returns a copy of the Prefix with the first word removed and the given
+// one appended.
+func (p Prefix) Shift(word string) Prefix {
+	p2 := make(Prefix, len(p))
+	copy(p2, p[1:])
+	p2[len(p2)-1] = word
+	return p2
 }
 
 var p *radix.Pool
@@ -91,7 +94,7 @@ func main() {
 			if err := p.Do(radix.FlatCmd(nil, "ZADD", key, ts, suffix)); err != nil {
 				log.Fatal(err)
 			}
-			prefix.Shift(suffix)
+			prefix = prefix.Shift(suffix)
 		}
 	})
 
@@ -108,6 +111,9 @@ func main() {
 			return
 		}
 
+		// for tracking if a prefix has been used already or not.
+		prefixM := map[string]bool{}
+
 		prefix := make(Prefix, prefixLen)
 		var words []string
 		for {
@@ -119,12 +125,29 @@ func main() {
 				break
 			}
 
-			i := rand.Intn(len(suffixes))
-			next := suffixes[i]
-			words = append(words, next)
-			prefix.Shift(next)
+			// try each possible suffix (randomly) trying to find one that
+			// generates a prefix which hasn't been used already. If none do
+			// then break.
+			var next string
+			var ok bool
+			for _, i := range rand.Perm(len(suffixes)) {
+				next = suffixes[i]
+				words = append(words, next)
+				newPrefix := prefix.Shift(next)
+				newPrefixStr := newPrefix.String()
+				if prefixM[newPrefixStr] {
+					continue
+				}
 
-			if len(next) == 0 {
+				prefixM[newPrefixStr] = true
+				prefix = newPrefix
+				ok = true
+				break
+			}
+
+			if !ok {
+				break
+			} else if len(next) == 0 {
 				continue
 			}
 
