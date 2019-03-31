@@ -1,7 +1,5 @@
 module github.com/mediocregopher/markov
 
-go 1.12
-
 require (
 	github.com/mediocregopher/lever v0.0.0-20150916225907-1ef8ade8af42
 	github.com/mediocregopher/radix/v3 v3.2.3
