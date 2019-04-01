@@ -16,8 +16,12 @@ this:
 
 ## Build
 
-    go get -u .
-    go build
+Building properly will require a go version 1.11 or higher:
+
+    go build .
+
+If you're using an older version you may have to run `go get -u .` first, and it
+won't be guaranteed to work.
 
 ## Setup
 
