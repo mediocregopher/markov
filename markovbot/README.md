@@ -6,8 +6,9 @@ channel's.
 
 ## Build
 
-    go get -u .
-    go build
+See build instructions in the top-level package for version info:
+
+    go build .
 
 ## Setup
 
