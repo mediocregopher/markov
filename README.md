@@ -69,3 +69,19 @@ Which might give:
 
 There is a bot for slack which I've written which makes use of markov as a
 backend. You can find it [here](/markovbot)
+
+## Docker
+
+You can set up a docker service with docker-compose
+
+```
+docker-compose build
+docker-compose up -d
+```
+
+or you can run an individual container
+
+```
+docker build -t yourname/markov .
+docker run -d -e REDIS_ADDR="<ip>:<port>" yourname/markov 
+```
